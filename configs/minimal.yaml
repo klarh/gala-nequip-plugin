@@ -1,0 +1,57 @@
+# !! PLEASE NOTE: `minimal.yaml` is meant as a _minimal_ example of a tiny, fast
+#                 training that can be used to verify your nequip+allegro install,
+#                 the syntax of your configuration edits, etc.
+#                 These are NOT recommended hyperparameters for real applications!
+#                 Please see `example.yaml` for a reasonable starting point.
+
+# general
+root: results/aspirin
+run_name: minimal
+seed: 123456
+dataset_seed: 123456
+
+# -- network --
+model_builders:
+ - gala_nequip_plugin.model.GAlA
+ - PerSpeciesRescale
+ - ForceOutput
+ - RescaleEnergyEtc
+
+# cutoffs
+r_max: 6.0
+
+# -- data --
+dataset: npz                                                                       # type of data set, can be npz or ase
+dataset_url: http://quantum-machine.org/gdml/data/npz/aspirin_ccsd.zip             # url to download the npz. optional
+dataset_file_name: ./benchmark_data/aspirin_ccsd-train.npz                         # path to data set file
+key_mapping:
+  z: atomic_numbers                                                                # atomic species, integers
+  E: total_energy                                                                  # total potential eneriges to train to
+  F: forces                                                                        # atomic forces to train to
+  R: pos                                                                           # raw atomic positions
+npz_fixed_field_keys:                                                              # fields that are repeated across different examples
+  - atomic_numbers
+
+# A mapping of chemical species to type indexes is necessary if the dataset is provided with atomic numbers instead of type indexes.
+chemical_symbol_to_type:
+  H: 0
+  C: 1
+  O: 2
+
+# logging
+wandb: false
+wandb_project: aspirin
+verbose: info
+
+# training
+n_train: 25
+n_val: 5
+batch_size: 1
+max_epochs: 10
+learning_rate: 0.002
+
+# loss function
+loss_coeffs: forces
+
+# optimizer
+optimizer_name: Adam
