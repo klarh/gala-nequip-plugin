@@ -12,20 +12,23 @@ model_builders:
  - ForceOutput
  - RescaleEnergyEtc
 
-merge_fun: mean
-join_fun: mean
-invariant_mode: single
-covariant_mode: single
-num_blocks: 2
+merge_fun: concat
+join_fun: concat
+invariant_mode: full
+covariant_mode: full
+gala_dropout: .1
+num_blocks: 3
 score_normalization: layer
 value_normalization: layer
 invariant_value_normalization: momentum
 equivariant_value_normalization: momentum_layer
-use_multivectors: False
+use_multivectors: True
 normalize_equivariant_values: True
 convex_covariants: True
 tied_attention: False
 gala_latent_dim: 32
+normalization_arguments:
+  momentum: .9
 
 edge_eng_mlp_latent_dimensions: [128]
 edge_eng_mlp_nonlinearity: silu
@@ -56,16 +59,48 @@ chemical_symbol_to_type:
 wandb: false
 wandb_project: aspirin
 verbose: info
+log_batch_freq: 64
 
 # training
-n_train: 25
-n_val: 5
-batch_size: 1
-max_epochs: 10
+n_train: 950
+n_val: 50
+batch_size: 4
+max_epochs: 100000
 learning_rate: 0.002
 
-# loss function
-loss_coeffs: forces
+# use an exponential moving average of the weights
+# if true, use exponential moving average on weights for val/test, usually helps a lot with training, in particular for energy errors
+use_ema: true
 
-# optimizer
+# ema weight, typically set to 0.99 or 0.999
+ema_decay: 0.99
+
+# whether to use number of updates when computing averages
+ema_use_num_updates: true
+
+loss_coeffs:
+  forces: 1.
+  total_energy:
+    - 1.
+    - PerAtomMSELoss
+
 optimizer_name: Adam
+optimizer_params:
+  amsgrad: false
+  betas: !!python/tuple
+  - 0.9
+  - 0.999
+  eps: 1.0e-08
+  weight_decay: 0.
+
+# lr scheduler, drop lr if no improvement for 50 epochs
+# on-plateau, reduce lr by factory of lr_scheduler_factor if metrics_key hasn't improved for lr_scheduler_patience epoch
+lr_scheduler_name: ReduceLROnPlateau
+lr_scheduler_patience: 50
+lr_scheduler_factor: 0.5
+
+early_stopping_lower_bounds:
+  LR: 1.0e-5
+
+early_stopping_patiences:
+  validation_loss: 100
