@@ -31,6 +31,17 @@ def GAlA(config, initialize, dataset=None):
         config=config, initialize=initialize, dataset=dataset
     )
 
+    gala_kwargs = {}
+
+    atomwise = False
+    if 'atomwise' in config:
+        atomwise = config['atomwise']
+    elif 'gala_atomwise' in config:
+        atomwise = config['gala_atomwise']
+
+    if atomwise:
+        gala_kwargs['out_field'] = AtomicDataDict.PER_ATOM_ENERGY_KEY
+
     layers = {
         # -- Encode --
         # Get various edge invariants
@@ -38,24 +49,27 @@ def GAlA(config, initialize, dataset=None):
         'symmetric': EdgeSymmetricEmbedding,
         'gala': (
             GAlA_Module,
-            dict()
-        ),
-        "edge_eng": (
-            ScalarMLP,
-            dict(field=EDGE_FEATURES, out_field=EDGE_ENERGY, mlp_output_dimension=1),
-        ),
-        # Sum edgewise energies -> per-atom energies:
-        "edge_eng_sum": EdgewiseEnergySum,
-        # Sum system energy:
-        "total_energy_sum": (
-            AtomwiseReduce,
-            dict(
-                reduce="sum",
-                field=AtomicDataDict.PER_ATOM_ENERGY_KEY,
-                out_field=AtomicDataDict.TOTAL_ENERGY_KEY,
-            ),
+            gala_kwargs
         ),
     }
+
+    if not atomwise:
+        layers['edge_eng'] = (
+            ScalarMLP,
+            dict(field=EDGE_FEATURES, out_field=EDGE_ENERGY, mlp_output_dimension=1),
+        )
+        # Sum edgewise energies -> per-atom energies:
+        layers["edge_eng_sum"] = EdgewiseEnergySum
+
+    # Sum system energy:
+    layers["total_energy_sum"] = (
+        AtomwiseReduce,
+        dict(
+            reduce="sum",
+            field=AtomicDataDict.PER_ATOM_ENERGY_KEY,
+            out_field=AtomicDataDict.TOTAL_ENERGY_KEY,
+        ),
+    )
     model = SequentialGraphNetwork.from_parameters(shared_params=config, layers=layers)
 
     return model

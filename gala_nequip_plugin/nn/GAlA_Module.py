@@ -32,6 +32,7 @@ class GAlA_Module(GraphModuleMixin, torch.nn.Module):
 
     def __init__(self, *args,
                  num_types,
+                 atomwise: bool = False,
                  latent_dim: int = 32,
                  field: str = AtomicDataDict.EDGE_ATTRS_KEY,
                  edge_invariant_field: str = AtomicDataDict.EDGE_ATTRS_KEY,
@@ -63,11 +64,13 @@ class GAlA_Module(GraphModuleMixin, torch.nn.Module):
                  convex_covariants=False,
                  tied_attention=False,
                  normalize_last_block=False,
+                 final_dilation=None,
                  irreps_in=None,
                  **kwargs):
         super().__init__()
 
         self.num_types = num_types
+        self.atomwise = atomwise
         self.latent_dim = latent_dim
         self.field = field
         self.edge_invariant_field = edge_invariant_field
@@ -100,22 +103,31 @@ class GAlA_Module(GraphModuleMixin, torch.nn.Module):
         self.convex_covariants = convex_covariants
         self.tied_attention = tied_attention
         self.normalize_last_block = normalize_last_block
+        self.final_dilation = final_dilation
 
         self._init_irreps(
             irreps_in=irreps_in,
             required_irreps_in=[],
         )
 
-        self.irreps_out.update(
-            {
-                self.out_field: o3.Irreps(
-                    [(self.latent_dim, (0, 1))]
+        if self.atomwise:
+            self.irreps_out.update(
+                {
+                    self.out_field: o3.Irreps(
+                        [(1, (0, 1))]
                     ),
-            }
-        )
+                }
+            )
+        else:
+            self.irreps_out.update(
+                {
+                    self.out_field: o3.Irreps(
+                        [(self.latent_dim, (0, 1))]
+                    ),
+                }
+            )
 
         self._initialize_gala_layers()
-        self.junk_layer = torch.nn.Linear(4, self.latent_dim)
 
     def _initialize_gala_layers(self):
         if self.use_multivectors:
@@ -200,13 +212,32 @@ class GAlA_Module(GraphModuleMixin, torch.nn.Module):
         self.eqvar_norm_layers = torch.nn.ModuleList(eqvar_norm_layers)
         self.input_norm_layers = torch.nn.ModuleList(input_norm_layers)
 
-        # final_kwargs = dict(common_kwargs)
-        # final_kwargs['reduce'] = True
-        # self.final_attention = InvariantAttention(
-        #     self.latent_dim,
-        #     self._make_score_net(),
-        #     self._make_value_net(),
-        #     **final_kwargs)
+        if self.atomwise:
+            final_kwargs = dict(common_kwargs)
+            final_kwargs['reduce'] = True
+            self.final_attention = InvariantAttention(
+                self.latent_dim,
+                self._make_score_net(),
+                self._make_value_net(self.latent_dim),
+                **final_kwargs)
+
+            # final MLP
+            final_dilation = self.final_dilation or self.dilation
+            mlp_dim = int(final_dilation*self.latent_dim)
+
+            layers = []
+
+            dim = self.latent_dim
+            for _ in range(self.mlp_layers):
+                layers.append(torch.nn.Linear(dim, mlp_dim))
+                layers.extend(self._get_normalization_layers('value', mlp_dim))
+                if self.dropout:
+                    layers.append(torch.nn.Dropout(self.dropout))
+                layers.append(self._activation_layer())
+                dim = mlp_dim
+
+            layers.append(torch.nn.Linear(dim, 1, bias=False))
+            self.final_mlp = torch.nn.Sequential(*layers)
 
     def _make_score_net(self):
         layers = []
@@ -344,8 +375,12 @@ class GAlA_Module(GraphModuleMixin, torch.nn.Module):
             if self.eqvar_norm_layers and (i + 1 < self.num_blocks or self.normalize_last_block):
                 last_eqvar = self.eqvar_norm_layers[i](last_eqvar)
 
-        # inputs = self._get_layer_inputs(self.num_blocks, last_eqvar, last_invar)
-        # last_invar = self.final_attention(inputs, mask=mask)
+        if self.atomwise:
+            inputs = self._get_layer_inputs(self.num_blocks, last_eqvar, last_invar)
+            last_invar = self.final_attention(inputs, mask=mask)
+            atomwise_energy = self.final_mlp(last_invar)
+            data[self.out_field] = atomwise_energy
+        else:
+            data[self.out_field] = last_invar[mask]
 
-        data[self.out_field] = last_invar[mask]
         return data
