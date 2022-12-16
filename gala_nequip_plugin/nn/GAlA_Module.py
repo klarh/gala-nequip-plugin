@@ -10,6 +10,15 @@ from allegro._keys import EDGE_FEATURES as EDGE_FEATURE_KEY
 
 from geometric_algebra_attention import pytorch as gala
 
+class LeakySwish(torch.nn.Module):
+    def __init__(self, factor=1e-2, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.factor = factor
+        self.fun = torch.nn.SiLU()
+
+    def forward(self, x):
+        return self.fun(x) - self.factor*self.fun(-x)
+
 class UnitNorm(torch.nn.Module):
     def forward(self, x):
         norm = gala.geometric_algebra.custom_norm(x)
@@ -19,6 +28,7 @@ class UnitNorm(torch.nn.Module):
 class GAlA_Module(GraphModuleMixin, torch.nn.Module):
     _ACTIVATION_FUNCTIONS = dict(
         swish=lambda *args, **kwargs: torch.nn.SiLU(),
+        leaky_swish=lambda *args, **kwargs: LeakySwish(),
     )
 
     _NORMALIZATION_FUNCTIONS = dict(
